@@ -1,16 +1,25 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
+﻿using System.Text.Json.Serialization;
 
 namespace SwishApi.Models
 {
     public class RefundData
     {
-        public string originalPaymentReference { get; set; }
-        public string callbackUrl { get; set; }
-        public string payerAlias { get; set; }
-        public string amount { get; set; }
-        public string currency { get; set; }
-        public string message { get; set; }
+        [JsonPropertyName("originalPaymentReference")]
+        public string OriginalPaymentReference { get; set; }
+
+        [JsonPropertyName("callbackUrl")]
+        public string CallbackUrl { get; set; }
+
+        [JsonPropertyName("payerAlias")]
+        public string PayerAlias { get; set; }
+
+        [JsonPropertyName("amount")]
+        public string Amount { get; set; }
+
+        [JsonPropertyName("currency")]
+        public string Currency { get; set; }
+
+        [JsonPropertyName("message")]
+        public string Message { get; set; }
     }
 }

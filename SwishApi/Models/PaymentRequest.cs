@@ -1,13 +1,11 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Text;
 
 namespace SwishApi.Models
 {
-    public class PaymentRequestECommerceData
+    internal class PaymentRequest
     {
         public string payeePaymentReference { get; set; }
-        public string callbackUrl { get; set; }
+        public Uri callbackUrl { get; set; }
         public string payerAlias { get; set; }
         public string payeeAlias { get; set; }
         public string amount { get; set; }

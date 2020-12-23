@@ -1,402 +1,266 @@
-﻿using Newtonsoft.Json;
-using RestSharp;
-using SwishApi.Models;
+﻿using SwishApi.Models;
 using System;
-using System.IO;
+using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Net.Security;
+using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Threading;
+using System.Threading.Tasks;
+using EnsureThat;
+using Microsoft.AspNetCore.JsonPatch;
+using Microsoft.AspNetCore.JsonPatch.Operations;
+using Microsoft.Extensions.Logging;
+using SwishApi.Helpers;
 
 namespace SwishApi
 {
-    public class Client
+    public abstract class SwishClient : ISwishClient
     {
-        public string _certificatePath;
-        public string _certificatePassword;
-        public string _baseAPIUrl;
-        public string _payeeAlias;
-        public byte[] _certDataBytes;
-        public string _callbackUrl;
-        public string _payeePaymentReference;
-
-        /// <summary>
-        /// This constructor being used for test environment of Swish for Merchant
-        /// </summary>
-        /// <param name="certificatePath"></param>
-        /// <param name="certificatePassword"></param>
-        public Client(string certificatePath, string certificatePassword, string callbackUrl)
+        private readonly string _payeeAlias;
+        private readonly string _payeePaymentReference;
+        private readonly Uri _callbackUrl;
+        private readonly HttpClient _client;
+        private readonly ILogger<SwishClient> _logger;
+        private readonly HttpMessageHandler _handler;
+        private readonly JsonSerializerOptions _options;
+        private const string Currency = "SEK";
+        
+        protected SwishClient(X509Certificate2 certificate, X509Certificate2Collection certificateCollection, Uri callbackUri, string payeeAlias, string payeePaymentReference, Uri endpointUri, ILogger<SwishClient> logger)
         {
-            _certificatePath = certificatePath;
-            _certDataBytes = System.IO.File.ReadAllBytes(certificatePath);
-            _certificatePassword = certificatePassword;
-            _baseAPIUrl = "https://mss.cpc.getswish.net"; // Test environment
-            _payeeAlias = "1234679304";
-            _callbackUrl = callbackUrl;
-            _payeePaymentReference = "01234679304";
-        }
-
-
-        public Client(string certificatePath, string certificatePassword, string callbackUrl, string payeePaymentReference, string payeeAlias)
-        {
-            _certificatePath = certificatePath;
-            _certDataBytes = System.IO.File.ReadAllBytes(certificatePath);
-            _certificatePassword = certificatePassword;
-            _baseAPIUrl = "https://cpc.getswish.net"; // Live environment
+            _logger = logger;
             _payeeAlias = payeeAlias;
-            _callbackUrl = callbackUrl;
             _payeePaymentReference = payeePaymentReference;
-        }
+            _callbackUrl = callbackUri;
 
-        private void PrepareHttpClientAndHandler(out HttpClientHandler handler, out HttpClient client)
-        {
-            // Got help for this code on https://stackoverflow.com/questions/61677247/can-a-p12-file-with-ca-certificates-be-used-in-c-sharp-without-importing-them-t
-            handler = new HttpClientHandler();
-            using (X509Store store = new X509Store(StoreName.CertificateAuthority, StoreLocation.CurrentUser))
+            _handler = CreateHttpMessageHandler(certificate, certificateCollection);
+            _client = CreateHttpClient(_handler, endpointUri);
+
+            logger.LogInformation("Swish Client Created. Endpoint Uri {EndpointUri}. PayeeAlias {payeeAlias}", endpointUri, payeeAlias);
+
+            _options = new JsonSerializerOptions
             {
-                store.Open(OpenFlags.ReadWrite);
-
-                var certs = new X509Certificate2Collection();
-                certs.Import(_certificatePath, _certificatePassword, X509KeyStorageFlags.DefaultKeySet);
-
-                foreach (X509Certificate2 cert in certs)
+                WriteIndented = true,
+                Converters =
                 {
-                    if (cert.HasPrivateKey)
-                    {
-                        handler.ClientCertificates.Add(cert);
-                    }
-                    else
-                    {
-                        store.Add(cert);
-                    }
+                    new JsonStringEnumConverter(JsonNamingPolicy.CamelCase)
                 }
-            }
+            };
 
-            var baseAddress = new Uri(_baseAPIUrl);
-
-            client = new HttpClient(handler) { BaseAddress = baseAddress };
+        }
+        
+        private static HttpClient CreateHttpClient(HttpMessageHandler messageHandler, Uri baseApiUri)
+        {
+            var client =  new HttpClient(messageHandler) { BaseAddress = baseApiUri };
+            client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            return client;
         }
 
-        public PaymentRequestECommerceResponse MakePaymentRequest(string phonenumber, int amount, string message)
+        private HttpMessageHandler CreateHttpMessageHandler(X509Certificate2 certificate, X509Certificate2Collection certificateCollection)
         {
+            var handler = new HttpClientHandler();
+            _logger.LogTrace("Adding Client Certificate '{Subject}'. Issuer '{Issuer}'. Has Private Key '{HasPrivateKey}'", certificate.Subject, certificate.Issuer , certificate.HasPrivateKey);
+            handler.ClientCertificateOptions = ClientCertificateOption.Manual;
+
+            handler.ClientCertificates.Add(certificate);
+            handler.SslProtocols = SslProtocols.Tls12;
+            handler.ClientCertificates.AddRange(certificateCollection);
+
+            handler.ServerCertificateCustomValidationCallback += ServerCertificateCustomValidationCallback;
+            return handler;
+        }
+
+        private bool ServerCertificateCustomValidationCallback(HttpRequestMessage arg1, X509Certificate2 arg2, X509Chain arg3, SslPolicyErrors policyErrors)
+        {
+            _logger.LogTrace($"Validating Certificate {arg2.Subject}. Errors {policyErrors}");
+            return policyErrors == SslPolicyErrors.None; ;
+        }
+        
+        public async Task<(LocationResponse Response, ErrorResponse Error)> MakePaymentRequestAsync(Guid paymentIdentifier, string phoneNumber, decimal amount, string message)
+        {
+            EnsureArg.IsGt(amount, 0, nameof(amount));
+            EnsureArg.IsNotNullOrEmpty(message);
+            EnsureArg.IsNotDefault(paymentIdentifier, nameof(paymentIdentifier));
+            EnsureArg.IsNotNullOrEmpty(phoneNumber, nameof(phoneNumber));
+            EnsureArg.IsNotNullOrEmpty(message, nameof(message));
+
             try
             {
-                var requestData = new PaymentRequestECommerceData()
+                var requestData = new PaymentRequest()
                 {
                     payeePaymentReference = _payeePaymentReference,
                     callbackUrl = _callbackUrl,
-                    payerAlias = phonenumber,
+                    payerAlias = phoneNumber,
                     payeeAlias = _payeeAlias,
-                    amount = amount.ToString(),
-                    currency = "SEK",
+                    amount = amount.ToSwishAmount(),
+                    currency = Currency,
                     message = message
                 };
-
-                HttpClientHandler handler;
-                HttpClient client;
-                PrepareHttpClientAndHandler(out handler, out client);
-
+                _logger.LogTrace("Json {Json}", JsonSerializer.Serialize(requestData, _options));
                 var httpRequestMessage = new HttpRequestMessage
                 {
-                    Method = HttpMethod.Post,
-                    RequestUri = new Uri(_baseAPIUrl + "/swish-cpcapi/api/v1/paymentrequests"),
-                    Content = new StringContent(JsonConvert.SerializeObject(requestData), Encoding.UTF8, "application/json")
+                    Method = HttpMethod.Put,
+                    RequestUri = new Uri(_client.BaseAddress, $"swish-cpcapi/api/v2/paymentrequests/{paymentIdentifier}"),
+                    Content = new JsonContent(requestData)
                 };
 
-                var response = client.SendAsync(httpRequestMessage).Result;
+                _logger.LogInformation("Sending Request {Verb} {Uri}", httpRequestMessage.Method.ToString(), httpRequestMessage.RequestUri.ToString());
 
-                string errorMessage = string.Empty;
-                string location = string.Empty;
+                var response = await _client.SendAsync(httpRequestMessage);
 
-                if (response.IsSuccessStatusCode)
-                {
-                    var headers = response.Headers.ToList();
+                return await HandleResponseAsync<LocationResponse>(response);
 
-                    if (headers.Any(x => x.Key == "Location"))
-                    {
-                        location = response.Headers.GetValues("Location").FirstOrDefault();
-                    }
-                }
-                else
-                {
-                    var readAsStringAsync = response.Content.ReadAsStringAsync();
-                    errorMessage = readAsStringAsync.Result;
-                }
-
-                client.Dispose();
-                handler.Dispose();
-
-                return new PaymentRequestECommerceResponse()
-                {
-                    Error = errorMessage,
-                    Location = location
-                };
             }
             catch (Exception ex)
             {
-                return new PaymentRequestECommerceResponse()
-                {
-                    Error = ex.ToString(),
-                    Location = ""
-                };
+                return HandleException<LocationResponse>(ex);
             }
         }
 
-        public PaymentRequestMCommerceResponse MakePaymentRequestMCommerce(int amount, string message)
+        public async Task<(CheckPaymentRequestStatusResponse Response, ErrorResponse Error)> CancelPaymentAsync(Guid paymentId)
         {
             try
             {
-                var requestData = new PaymentRequestMCommerceData()
+                JsonPatchDocument jsonPatchDocument = new JsonPatchDocument();
+                jsonPatchDocument.Operations.Add(new Operation(){op = "replace", path = "/status", value = "cancelled" });
+                var url = new Uri(_client.BaseAddress, $"swish-cpcapi/api/v1/paymentrequests/{paymentId}");
+
+                var httpRequestMessage = new HttpRequestMessage(HttpMethod.Patch, url)
                 {
-                    payeePaymentReference = _payeePaymentReference,
-                    callbackUrl = _callbackUrl,
-                    payeeAlias = _payeeAlias,
-                    amount = amount.ToString(),
-                    currency = "SEK",
-                    message = message
+                    Content = new StringContent(JsonSerializer.Serialize(jsonPatchDocument, _options), Encoding.UTF8, "application/json-patch+json")
                 };
 
-                HttpClientHandler handler;
-                HttpClient client;
-                PrepareHttpClientAndHandler(out handler, out client);
+                var response = await _client.SendAsync(httpRequestMessage);
 
-                var httpRequestMessage = new HttpRequestMessage
-                {
-                    Method = HttpMethod.Post,
-                    RequestUri = new Uri(_baseAPIUrl + "/swish-cpcapi/api/v1/paymentrequests"),
-                    Content = new StringContent(JsonConvert.SerializeObject(requestData), Encoding.UTF8, "application/json")
-                };
-
-                var response = client.SendAsync(httpRequestMessage).Result;
-
-                string errorMessage = string.Empty;
-                string PaymentRequestToken = string.Empty;
-                string Location = string.Empty;
-
-                if (response.IsSuccessStatusCode)
-                {
-                    var headers = response.Headers.ToList();
-
-                    if (headers.Any(x => x.Key == "PaymentRequestToken"))
-                    {
-                        PaymentRequestToken = response.Headers.GetValues("PaymentRequestToken").FirstOrDefault();
-                    }
-
-                    if (headers.Any(x => x.Key == "Location"))
-                    {
-                        Location = response.Headers.GetValues("Location").FirstOrDefault();
-                    }
-                }
-                else
-                {
-                    var readAsStringAsync = response.Content.ReadAsStringAsync();
-                    errorMessage = readAsStringAsync.Result;
-                }
-
-                client.Dispose();
-                handler.Dispose();
-
-                return new PaymentRequestMCommerceResponse()
-                {
-                    Error = errorMessage,
-                    Token = PaymentRequestToken, 
-                    Location = Location
-                };
+                return await HandleResponseAsync<CheckPaymentRequestStatusResponse>(response);
             }
             catch (Exception ex)
             {
-                return new PaymentRequestMCommerceResponse()
-                {
-                    Error = ex.ToString(),
-                    Token = "",
-                    Location = ""
-                };
+                return HandleException<CheckPaymentRequestStatusResponse>(ex);
             }
         }
 
-        public CheckPaymentRequestStatusResponse CheckPaymentStatus(string url)
+        private async Task<(T Response, ErrorResponse Error)> HandleResponseAsync<T>(HttpResponseMessage response) where T : class, new()
+        {
+            switch (response.StatusCode)
+            {
+                case HttpStatusCode.OK:
+                    var readAsStringAsync = await response.Content.ReadAsStringAsync();
+                    return (JsonSerializer.Deserialize<T>(readAsStringAsync, _options), null);
+                case HttpStatusCode.NoContent:
+                case HttpStatusCode.Created:
+                    if (typeof(LocationResponse).IsAssignableFrom(typeof(T)))
+                    {
+                        var responseLocation = new T();
+                        if (responseLocation is LocationResponse locationResponse)
+                        {
+                            locationResponse.Location = response.Headers.Location;
+                        }
+
+                        return (responseLocation, null);
+                    }
+
+                    return (new T(), null);
+                case HttpStatusCode.UnprocessableEntity:
+                    return await ReturnErrorsAsync<T>(response);
+                case HttpStatusCode.InternalServerError:
+                {
+                    var errorResponse = new ErrorResponse();
+                    errorResponse.Errors.Add(new Error() {ErrorCode = "500", ErrorMessage = "Internal Server Error"});
+                    return (default, errorResponse);
+                }
+                default:
+                {
+                    var responsePayload = await response.Content.ReadAsStringAsync();
+                    var errorResponse = new ErrorResponse();
+                    errorResponse.Errors.Add(new Error() { ErrorCode = response.StatusCode.ToString(), ErrorMessage = "Unknown error", AdditionalInformation = responsePayload });
+                    return (default, errorResponse);
+                }
+            }
+        }
+
+        public async Task<(CheckPaymentRequestStatusResponse Response, ErrorResponse Error)> CheckPaymentStatusAsync(Guid paymentId, CancellationToken cancellationToken = default(CancellationToken))
         {
             try
             {
-                HttpClientHandler handler;
-                HttpClient client;
-                PrepareHttpClientAndHandler(out handler, out client);
-                client.BaseAddress = new Uri(url);
+                var httpRequestMessage = new HttpRequestMessage(HttpMethod.Get, new Uri(_client.BaseAddress, $"swish-cpcapi/api/v1/paymentrequests/{paymentId}"));
 
+                var response = await _client.SendAsync(httpRequestMessage, cancellationToken);
 
-                var httpRequestMessage = new HttpRequestMessage
-                {
-                    Method = HttpMethod.Get
-                };
-
-                var response = client.SendAsync(httpRequestMessage).Result;
-
-                string errorMessage = string.Empty;
-                string PaymentRequestToken = string.Empty;
-                CheckPaymentRequestStatusResponse r = null;
-
-                if (response.IsSuccessStatusCode)
-                {
-                    var readAsStringAsync = response.Content.ReadAsStringAsync();
-                    string jsonResponse = readAsStringAsync.Result;
-
-                    r = JsonConvert.DeserializeObject<CheckPaymentRequestStatusResponse>(jsonResponse);
-                }
-                else
-                {
-                    var readAsStringAsync = response.Content.ReadAsStringAsync();
-                    errorMessage = readAsStringAsync.Result;
-                }
-
-                client.Dispose();
-                handler.Dispose();
-
-                if (!string.IsNullOrEmpty(errorMessage))
-                {
-                    return new CheckPaymentRequestStatusResponse()
-                    {
-                        errorCode = "Error",
-                        errorMessage = errorMessage
-                    };
-                } else
-                {
-                    return r;
-                }
+                return await HandleResponseAsync<CheckPaymentRequestStatusResponse>(response);
             }
             catch (Exception ex)
             {
-                return new CheckPaymentRequestStatusResponse()
-                {
-                    errorCode = "Exception",
-                    errorMessage = ex.ToString()
-                };
+                return HandleException<CheckPaymentRequestStatusResponse>(ex);
             }
         }
 
-        public RefundResponse Refund(string originalPaymentReference, double amount, string message, string refundCallbackUrl)
+        public async Task<(LocationResponse Response, ErrorResponse Error)> RefundAsync(Guid paymentId, Guid refundId, decimal amount, string message)
         {
+            EnsureArg.IsGt(amount, 0, nameof(amount));
+            EnsureArg.IsNotNullOrEmpty(message);
+            EnsureArg.IsNotDefault(paymentId, nameof(paymentId));
+            EnsureArg.IsNotDefault(refundId, nameof(refundId));
+            EnsureArg.IsNotEqualTo(paymentId.ToString(), refundId.ToString());
+
             try
             {
                 var requestData = new RefundData()
                 {
-                    originalPaymentReference = originalPaymentReference,
-                    callbackUrl = refundCallbackUrl,
-                    payerAlias = _payeeAlias,
-                    amount = amount.ToString(),
-                    currency = "SEK",
-                    message = message
+                    OriginalPaymentReference = paymentId.ToString(),
+                    CallbackUrl = _callbackUrl.ToString(),
+                    PayerAlias = _payeeAlias,
+                    Amount = amount.ToSwishAmount(),
+                    Currency = Currency,
+                    Message = message
                 };
-
-                HttpClientHandler handler;
-                HttpClient client;
-                PrepareHttpClientAndHandler(out handler, out client);
 
                 var httpRequestMessage = new HttpRequestMessage
                 {
-                    Method = HttpMethod.Post,
-                    RequestUri = new Uri(_baseAPIUrl + "/swish-cpcapi/api/v1/refunds"),
-                    Content = new StringContent(JsonConvert.SerializeObject(requestData), Encoding.UTF8, "application/json")
+                    Method = HttpMethod.Put,
+                    RequestUri = new Uri(_client.BaseAddress, $"swish-cpcapi/api/v2/refunds/{refundId}"),
+                    Content = new JsonContent(requestData)
                 };
 
-                var response = client.SendAsync(httpRequestMessage).Result;
+                var response = await _client.SendAsync(httpRequestMessage);
 
-                string errorMessage = string.Empty;
-                string Location = string.Empty;
-
-                if (response.IsSuccessStatusCode)
-                {
-                    var headers = response.Headers.ToList();
-
-                    if (headers.Any(x => x.Key == "Location"))
-                    {
-                        Location = response.Headers.GetValues("Location").FirstOrDefault();
-                    }
-                }
-                else
-                {
-                    var readAsStringAsync = response.Content.ReadAsStringAsync();
-                    errorMessage = readAsStringAsync.Result;
-                }
-
-                client.Dispose();
-                handler.Dispose();
-
-                return new RefundResponse()
-                {
-                    Error = errorMessage,
-                    Location = Location
-                };
+                return await HandleResponseAsync<LocationResponse>(response);
             }
             catch (Exception ex)
             {
-                return new RefundResponse()
-                {
-                    Error = ex.ToString(),
-                    Location = ""
-                };
+                return HandleException<LocationResponse>(ex);
             }
         }
 
-        public CheckRefundStatusResponse CheckRefundStatus(string url)
+
+        public async Task<(CheckRefundStatusResponse Response, ErrorResponse Error)> CheckRefundStatusAsync(Guid refundId, CancellationToken cancellationToken = default(CancellationToken))
         {
             try
             {
-                HttpClientHandler handler;
-                HttpClient client;
-                PrepareHttpClientAndHandler(out handler, out client);
-                client.BaseAddress = new Uri(url);
-
-
                 var httpRequestMessage = new HttpRequestMessage
                 {
-                    Method = HttpMethod.Get
+                    Method = HttpMethod.Get,
+                    RequestUri = new Uri(_client.BaseAddress, $"swish-cpcapi/api/v1/refunds/{refundId}"),
                 };
 
-                var response = client.SendAsync(httpRequestMessage).Result;
+                var response = await _client.SendAsync(httpRequestMessage, cancellationToken);
 
-                string errorMessage = string.Empty;
-                string PaymentRequestToken = string.Empty;
-                CheckRefundStatusResponse r = null;
-
-                if (response.IsSuccessStatusCode)
-                {
-                    var readAsStringAsync = response.Content.ReadAsStringAsync();
-                    string jsonResponse = readAsStringAsync.Result;
-
-                    r = JsonConvert.DeserializeObject<CheckRefundStatusResponse>(jsonResponse);
-                }
-                else
-                {
-                    var readAsStringAsync = response.Content.ReadAsStringAsync();
-                    errorMessage = readAsStringAsync.Result;
-                }
-
-                client.Dispose();
-                handler.Dispose();
-
-                if (!string.IsNullOrEmpty(errorMessage))
-                {
-                    return new CheckRefundStatusResponse()
-                    {
-                        errorCode = "Error",
-                        errorMessage = errorMessage
-                    };
-                }
-                else
-                {
-                    return r;
-                }
+                return await HandleResponseAsync<CheckRefundStatusResponse>(response);
             }
             catch (Exception ex)
             {
-                return new CheckRefundStatusResponse()
-                {
-                    errorCode = "Exception",
-                    errorMessage = ex.ToString()
-                };
+                return HandleException<CheckRefundStatusResponse>(ex);
             }
         }
-        public QRCodeResponse GetQRCode(string token, string format = "svg", int size = 300, int border = 0, bool transparent = true)
+
+        public async Task<(QRCodeResponse Response, ErrorResponse Error)> GetQRCodeAsync(string token, string format = "svg", int size = 300, int border = 0, bool transparent = true, CancellationToken cancellationToken = default(CancellationToken))
         {
             try
             {
@@ -409,49 +273,42 @@ namespace SwishApi
                     transparent = transparent
                 };
 
-                HttpClientHandler handler = new HttpClientHandler();
-                HttpClient client = new HttpClient(handler) { BaseAddress = new Uri("https://mpc.getswish.net") };
-
+               
                 var httpRequestMessage = new HttpRequestMessage
                 {
                     Method = HttpMethod.Post,
-                    RequestUri = new Uri("https://mpc.getswish.net/qrg-swish/api/v1/commerce"),
-                    Content = new StringContent(JsonConvert.SerializeObject(requestData), Encoding.UTF8, "application/json")
+                    RequestUri = new Uri(_client.BaseAddress,"qrg-swish/api/v1/commerce"),
+                    Content = new JsonContent(requestData)
                 };
 
-                var response = client.SendAsync(httpRequestMessage).Result;
+                var response = await _client.SendAsync(httpRequestMessage, cancellationToken);
 
-                string errorMessage = string.Empty;
-                string svgData = string.Empty;
-
-                if (response.IsSuccessStatusCode)
-                {
-                    var readAsStringAsync = response.Content.ReadAsStringAsync();
-                    svgData = readAsStringAsync.Result;
-                }
-                else
-                {
-                    var readAsStringAsync = response.Content.ReadAsStringAsync();
-                    errorMessage = readAsStringAsync.Result;
-                }
-
-                client.Dispose();
-                handler.Dispose();
-
-                return new QRCodeResponse()
-                {
-                    Error = errorMessage,
-                    SVGData = svgData
-                };
+                return await ReturnErrorsAsync<QRCodeResponse>(response);
             }
             catch (Exception ex)
             {
-                return new QRCodeResponse()
-                {
-                    Error = ex.ToString(),
-                    SVGData = string.Empty
-                };
+                return HandleException<QRCodeResponse>(ex);
             }
+        }
+
+        private async Task<(T Response, ErrorResponse Error)> ReturnErrorsAsync<T>(HttpResponseMessage response)
+        {
+            var errorResponse = new ErrorResponse();
+            errorResponse.Errors.AddRange(JsonSerializer.Deserialize<List<Error>>(await response.Content.ReadAsByteArrayAsync(), _options));
+            return (default, errorResponse);
+        }
+
+        private (T Response, ErrorResponse Error) HandleException<T>(Exception exception)
+        {
+            _logger.LogError(exception, "Exception catch");
+            var errorResponse = new ErrorResponse();
+            errorResponse.Errors.Add(new Error() { ErrorCode = "InternalException", ErrorMessage = exception.Message, Exception = exception });
+            return (default, errorResponse);
+        }
+
+        public void Dispose()
+        {
+            _client?.Dispose();
         }
     }
 }
