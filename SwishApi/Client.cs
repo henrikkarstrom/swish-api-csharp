@@ -107,8 +107,8 @@ namespace SwishApi
                 var httpRequestMessage = new HttpRequestMessage
                 {
                     Method = HttpMethod.Put,
-                    RequestUri = new Uri(_client.BaseAddress, $"swish-cpcapi/api/v2/paymentrequests/{paymentIdentifier}"),
-                    Content = new JsonContent(requestData)
+                    RequestUri = new Uri(_client.BaseAddress, $"swish-cpcapi/api/v2/paymentrequests/{paymentIdentifier.ToString().ToUpperInvariant().Replace("-","")}"),
+                    Content = new StringContent(JsonSerializer.Serialize(requestData, _options), Encoding.UTF8, "application/json"),
                 };
 
                 _logger.LogInformation("Sending Request {Verb} {Uri}", httpRequestMessage.Method.ToString(), httpRequestMessage.RequestUri.ToString());
@@ -130,7 +130,7 @@ namespace SwishApi
             {
                 JsonPatchDocument jsonPatchDocument = new JsonPatchDocument();
                 jsonPatchDocument.Operations.Add(new Operation(){op = "replace", path = "/status", value = "cancelled" });
-                var url = new Uri(_client.BaseAddress, $"swish-cpcapi/api/v1/paymentrequests/{paymentId}");
+                var url = new Uri(_client.BaseAddress, $"swish-cpcapi/api/v1/paymentrequests/{paymentId.ToString().ToUpperInvariant().Replace("-", "")}");
 
                 var httpRequestMessage = new HttpRequestMessage(HttpMethod.Patch, url)
                 {
@@ -179,6 +179,7 @@ namespace SwishApi
                 default:
                 {
                     var responsePayload = await response.Content.ReadAsStringAsync();
+                    _logger.LogError($"HTTP {response.StatusCode} {responsePayload}");
                     var errorResponse = new ErrorResponse();
                     errorResponse.Errors.Add(new Error() { ErrorCode = response.StatusCode.ToString(), ErrorMessage = "Unknown error", AdditionalInformation = responsePayload });
                     return (default, errorResponse);
@@ -190,7 +191,7 @@ namespace SwishApi
         {
             try
             {
-                var httpRequestMessage = new HttpRequestMessage(HttpMethod.Get, new Uri(_client.BaseAddress, $"swish-cpcapi/api/v1/paymentrequests/{paymentId}"));
+                var httpRequestMessage = new HttpRequestMessage(HttpMethod.Get, new Uri(_client.BaseAddress, $"swish-cpcapi/api/v1/paymentrequests/{paymentId.ToString().ToUpperInvariant().Replace("-", "")}"));
 
                 var response = await _client.SendAsync(httpRequestMessage, cancellationToken);
 
@@ -247,7 +248,7 @@ namespace SwishApi
                 var httpRequestMessage = new HttpRequestMessage
                 {
                     Method = HttpMethod.Get,
-                    RequestUri = new Uri(_client.BaseAddress, $"swish-cpcapi/api/v1/refunds/{refundId}"),
+                    RequestUri = new Uri(_client.BaseAddress, $"swish-cpcapi/api/v1/refunds/{refundId.ToString().ToUpperInvariant().Replace("-", "")}"),
                 };
 
                 var response = await _client.SendAsync(httpRequestMessage, cancellationToken);
@@ -294,7 +295,8 @@ namespace SwishApi
         private async Task<(T Response, ErrorResponse Error)> ReturnErrorsAsync<T>(HttpResponseMessage response)
         {
             var errorResponse = new ErrorResponse();
-            errorResponse.Errors.AddRange(JsonSerializer.Deserialize<List<Error>>(await response.Content.ReadAsByteArrayAsync(), _options));
+            var error = await response.Content.ReadAsStringAsync();
+            errorResponse.Errors.AddRange(JsonSerializer.Deserialize<List<Error>>(error, _options));
             return (default, errorResponse);
         }
 
