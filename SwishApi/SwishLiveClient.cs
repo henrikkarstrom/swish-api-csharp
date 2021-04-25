@@ -8,8 +8,8 @@ namespace SwishApi
     {
         private static readonly Uri EndpointUri = new Uri("https://cpc.getswish.net");
 
-        public SwishLiveClient(X509Certificate2 certificate, X509Certificate2Collection certificateCollection, Uri callbackUri, string payeeAlias, string payeePaymentReference, ILogger<SwishLiveClient> logger) : 
-            base(certificate, certificateCollection, callbackUri, payeeAlias, payeePaymentReference, EndpointUri, logger)
+        public SwishLiveClient(ISwishCertificateProvider swishCertificateProvider, ISwishSettingsProvider settingsProvider, ILogger<SwishLiveClient> logger) : 
+            base(swishCertificateProvider, settingsProvider, EndpointUri, logger)
         {
         }
     }

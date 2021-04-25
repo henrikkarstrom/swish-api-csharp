@@ -33,17 +33,17 @@ namespace SwishApi
         private readonly JsonSerializerOptions _options;
         private const string Currency = "SEK";
         
-        protected SwishClient(X509Certificate2 certificate, X509Certificate2Collection certificateCollection, Uri callbackUri, string payeeAlias, string payeePaymentReference, Uri endpointUri, ILogger<SwishClient> logger)
+        protected SwishClient(ISwishCertificateProvider swishCertificateProvider, ISwishSettingsProvider settingsProvider, Uri endpointUri, ILogger<SwishClient> logger)
         {
             _logger = logger;
-            _payeeAlias = payeeAlias;
-            _payeePaymentReference = payeePaymentReference;
-            _callbackUrl = callbackUri;
-
-            _handler = CreateHttpMessageHandler(certificate, certificateCollection);
+            _payeeAlias = settingsProvider.PayeeAlias;
+            _payeePaymentReference = settingsProvider.PayeePaymentReference;
+            _callbackUrl = settingsProvider.CallbackUri;
+            var certificates = swishCertificateProvider.GetSwishCertificates();
+            _handler = CreateHttpMessageHandler(certificates.PrivateCertificate, certificates.CertificateChain);
             _client = CreateHttpClient(_handler, endpointUri);
 
-            logger.LogInformation("Swish Client Created. Endpoint Uri {EndpointUri}. PayeeAlias {payeeAlias}", endpointUri, payeeAlias);
+            logger.LogInformation("Swish Client Created. Endpoint Uri {EndpointUri}. PayeeAlias {payeeAlias}", endpointUri, _payeeAlias);
 
             _options = new JsonSerializerOptions
             {
