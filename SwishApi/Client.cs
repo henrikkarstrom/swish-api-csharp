@@ -25,7 +25,6 @@ namespace SwishApi
     public abstract class SwishClient : ISwishClient
     {
         private readonly string _payeeAlias;
-        private readonly string _payeePaymentReference;
         private readonly Uri _callbackUrl;
         private readonly HttpClient _client;
         private readonly ILogger<SwishClient> _logger;
@@ -37,7 +36,6 @@ namespace SwishApi
         {
             _logger = logger;
             _payeeAlias = settingsProvider.PayeeAlias;
-            _payeePaymentReference = settingsProvider.PayeePaymentReference;
             _callbackUrl = settingsProvider.CallbackUri;
             var certificates = swishCertificateProvider.GetSwishCertificates();
             _handler = CreateHttpMessageHandler(certificates.PrivateCertificate, certificates.CertificateChain);
@@ -83,7 +81,7 @@ namespace SwishApi
             return policyErrors == SslPolicyErrors.None; ;
         }
         
-        public async Task<(LocationResponse Response, ErrorResponse Error)> MakePaymentRequestAsync(Guid paymentIdentifier, string phoneNumber, decimal amount, string message)
+        public async Task<(LocationResponse Response, ErrorResponse Error)> MakePaymentRequestAsync(Guid paymentIdentifier, string phoneNumber, decimal amount, string message, string orderId)
         {
             EnsureArg.IsGt(amount, 0, nameof(amount));
             EnsureArg.IsNotNullOrEmpty(message);
@@ -95,7 +93,7 @@ namespace SwishApi
             {
                 var requestData = new PaymentRequest()
                 {
-                    payeePaymentReference = _payeePaymentReference,
+                    payeePaymentReference = orderId,
                     callbackUrl = _callbackUrl,
                     payerAlias = phoneNumber,
                     payeeAlias = _payeeAlias,

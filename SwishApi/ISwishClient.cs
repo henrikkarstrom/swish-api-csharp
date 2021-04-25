@@ -9,7 +9,7 @@ namespace SwishApi
     {
         
 
-         Task<(LocationResponse Response, ErrorResponse Error)> MakePaymentRequestAsync(Guid paymentId, string phoneNumber, decimal amount, string message);
+         Task<(LocationResponse Response, ErrorResponse Error)> MakePaymentRequestAsync(Guid paymentId, string phoneNumber, decimal amount, string message, string orderId);
 
         Task<(CheckPaymentRequestStatusResponse Response, ErrorResponse Error)> CheckPaymentStatusAsync(Guid paymentId, CancellationToken cancellationToken = default(CancellationToken));
 

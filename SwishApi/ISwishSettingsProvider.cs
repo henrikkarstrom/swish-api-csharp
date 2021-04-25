@@ -6,6 +6,5 @@ namespace SwishApi
     {
         Uri CallbackUri { get; }
         string PayeeAlias { get; }
-        string PayeePaymentReference { get; }
     }
 }
