@@ -35,10 +35,11 @@ namespace SwishApi
         protected SwishClient(ISwishCertificateProvider swishCertificateProvider, ISwishSettingsProvider settingsProvider, Uri endpointUri, ILogger<SwishClient> logger)
         {
             _logger = logger;
+            _logger.LogInformation("Swish Client Create started");
             _payeeAlias = settingsProvider.PayeeAlias;
             _callbackUrl = settingsProvider.CallbackUri;
             var certificates = swishCertificateProvider.GetSwishCertificates();
-            _handler = CreateHttpMessageHandler(certificates.PrivateCertificate, certificates.CertificateChain);
+            _handler = CreateHttpMessageHandler(certificates);
             _client = CreateHttpClient(_handler, endpointUri);
 
             logger.LogInformation("Swish Client Created. Endpoint Uri {EndpointUri}. PayeeAlias {payeeAlias}", endpointUri, _payeeAlias);
@@ -61,13 +62,12 @@ namespace SwishApi
             return client;
         }
 
-        private HttpMessageHandler CreateHttpMessageHandler(X509Certificate2 certificate, X509Certificate2Collection certificateCollection)
+        private HttpMessageHandler CreateHttpMessageHandler(X509Certificate2Collection certificateCollection)
         {
             var handler = new HttpClientHandler();
-            _logger.LogTrace("Adding Client Certificate '{Subject}'. Issuer '{Issuer}'. Has Private Key '{HasPrivateKey}'", certificate.Subject, certificate.Issuer , certificate.HasPrivateKey);
+            _logger.LogTrace("Adding Client Certificate '{Subject}'. Issuer '{Issuer}'. Has Private Key '{HasPrivateKey}'", certificateCollection.Count, certificateCollection.Count, certificateCollection.Count);
             handler.ClientCertificateOptions = ClientCertificateOption.Manual;
 
-            handler.ClientCertificates.Add(certificate);
             handler.SslProtocols = SslProtocols.Tls12;
             handler.ClientCertificates.AddRange(certificateCollection);
 
@@ -77,8 +77,8 @@ namespace SwishApi
 
         private bool ServerCertificateCustomValidationCallback(HttpRequestMessage arg1, X509Certificate2 arg2, X509Chain arg3, SslPolicyErrors policyErrors)
         {
-            _logger.LogTrace($"Validating Certificate {arg2.Subject}. Errors {policyErrors}");
-            return policyErrors == SslPolicyErrors.None; ;
+            _logger.LogInformation($"Validating Certificate {arg2.Subject}. Errors {policyErrors}");
+            return policyErrors == SslPolicyErrors.None;
         }
         
         public async Task<(LocationResponse Response, ErrorResponse Error)> MakePaymentRequestAsync(Guid paymentIdentifier, string phoneNumber, decimal amount, string message, string orderId)
@@ -101,7 +101,7 @@ namespace SwishApi
                     currency = Currency,
                     message = message
                 };
-                _logger.LogTrace("Json {Json}", JsonSerializer.Serialize(requestData, _options));
+                _logger.LogInformation("Json {Json}", JsonSerializer.Serialize(requestData, _options));
                 var httpRequestMessage = new HttpRequestMessage
                 {
                     Method = HttpMethod.Put,
@@ -118,6 +118,7 @@ namespace SwishApi
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "Unable to send or handle Swish request");
                 return HandleException<LocationResponse>(ex);
             }
         }

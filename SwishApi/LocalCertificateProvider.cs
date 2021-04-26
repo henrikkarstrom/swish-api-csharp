@@ -15,9 +15,9 @@ namespace SwishApi
             _certificateCollection = certificateCollection;
         }
 
-        public (X509Certificate2 PrivateCertificate, X509Certificate2Collection CertificateChain) GetSwishCertificates()
+        public X509Certificate2Collection GetSwishCertificates()
         {
-            return (_certificate, _certificateCollection);
+            return _certificateCollection;
         }
     }
 

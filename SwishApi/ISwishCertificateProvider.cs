@@ -4,6 +4,6 @@ namespace SwishApi
 {
     public interface ISwishCertificateProvider
     {
-        (X509Certificate2 PrivateCertificate, X509Certificate2Collection CertificateChain) GetSwishCertificates();
+        X509Certificate2Collection GetSwishCertificates();
     }
 }
