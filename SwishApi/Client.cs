@@ -105,7 +105,7 @@ namespace SwishApi
                 var httpRequestMessage = new HttpRequestMessage
                 {
                     Method = HttpMethod.Put,
-                    RequestUri = new Uri(_client.BaseAddress, $"swish-cpcapi/api/v2/paymentrequests/{paymentIdentifier.ToString().ToUpperInvariant().Replace("-","")}"),
+                    RequestUri = new Uri(_client.BaseAddress, $"swish-cpcapi/api/v2/paymentrequests/{paymentIdentifier.ToSwishId()}"),
                     Content = new StringContent(JsonSerializer.Serialize(requestData, _options), Encoding.UTF8, "application/json"),
                 };
 
@@ -129,7 +129,7 @@ namespace SwishApi
             {
                 JsonPatchDocument jsonPatchDocument = new JsonPatchDocument();
                 jsonPatchDocument.Operations.Add(new Operation(){op = "replace", path = "/status", value = "cancelled" });
-                var url = new Uri(_client.BaseAddress, $"swish-cpcapi/api/v1/paymentrequests/{paymentId.ToString().ToUpperInvariant().Replace("-", "")}");
+                var url = new Uri(_client.BaseAddress, $"swish-cpcapi/api/v1/paymentrequests/{paymentId.ToSwishId()}");
 
                 var httpRequestMessage = new HttpRequestMessage(HttpMethod.Patch, url)
                 {
@@ -190,7 +190,7 @@ namespace SwishApi
         {
             try
             {
-                var httpRequestMessage = new HttpRequestMessage(HttpMethod.Get, new Uri(_client.BaseAddress, $"swish-cpcapi/api/v1/paymentrequests/{paymentId.ToString().ToUpperInvariant().Replace("-", "")}"));
+                var httpRequestMessage = new HttpRequestMessage(HttpMethod.Get, new Uri(_client.BaseAddress, $"swish-cpcapi/api/v1/paymentrequests/{paymentId.ToSwishId()}"));
 
                 var response = await _client.SendAsync(httpRequestMessage, cancellationToken);
 
@@ -214,7 +214,7 @@ namespace SwishApi
             {
                 var requestData = new RefundData()
                 {
-                    OriginalPaymentReference = paymentId.ToString(),
+                    OriginalPaymentReference = paymentId.ToSwishId(),
                     CallbackUrl = _callbackUrl.ToString(),
                     PayerAlias = _payeeAlias,
                     Amount = amount.ToSwishAmount(),
@@ -225,7 +225,7 @@ namespace SwishApi
                 var httpRequestMessage = new HttpRequestMessage
                 {
                     Method = HttpMethod.Put,
-                    RequestUri = new Uri(_client.BaseAddress, $"swish-cpcapi/api/v2/refunds/{refundId}"),
+                    RequestUri = new Uri(_client.BaseAddress, $"swish-cpcapi/api/v2/refunds/{refundId.ToSwishId()}"),
                     Content = new JsonContent(requestData)
                 };
 
@@ -247,7 +247,7 @@ namespace SwishApi
                 var httpRequestMessage = new HttpRequestMessage
                 {
                     Method = HttpMethod.Get,
-                    RequestUri = new Uri(_client.BaseAddress, $"swish-cpcapi/api/v1/refunds/{refundId.ToString().ToUpperInvariant().Replace("-", "")}"),
+                    RequestUri = new Uri(_client.BaseAddress, $"swish-cpcapi/api/v1/refunds/{refundId.ToSwishId()}"),
                 };
 
                 var response = await _client.SendAsync(httpRequestMessage, cancellationToken);

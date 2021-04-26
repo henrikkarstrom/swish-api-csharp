@@ -29,4 +29,12 @@ namespace SwishApi.Helpers
             return value.ToString("##.##", FormatInfo);
         }
     }
+
+    public static class GuidHelpers
+    {
+        public static string ToSwishId(this Guid value)
+        {
+            return value.ToString().ToUpperInvariant().Replace("-", "");
+        }
+    }
 }
