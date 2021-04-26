@@ -212,9 +212,24 @@ namespace SwishApi
 
             try
             {
+                var checkPaymentResponse = await CheckPaymentStatusAsync(paymentId);
+
+                if(checkPaymentResponse.Error != null)
+                {
+                    return (null, checkPaymentResponse.Error);
+                }
+
+                if(checkPaymentResponse.Response.Status != PaymentStatus.PAID)
+                {
+                    var errors = new ErrorResponse();
+                    errors.Errors.Add(new Error() { ErrorCode = "JBS1", ErrorMessage = "Payment not in status PAID" });
+                    return (null, errors);
+                }
+                
+
                 var requestData = new RefundData()
                 {
-                    OriginalPaymentReference = paymentId.ToSwishId(),
+                    OriginalPaymentReference = checkPaymentResponse.Response.PaymentReference,
                     CallbackUrl = _callbackUrl.ToString(),
                     PayerAlias = _payeeAlias,
                     Amount = amount.ToSwishAmount(),
@@ -222,10 +237,13 @@ namespace SwishApi
                     Message = message
                 };
 
+                var uri = new Uri(_client.BaseAddress, $"swish-cpcapi/api/v2/refunds/{refundId.ToSwishId()}");
+                _logger.LogInformation("Uri {Uri} Json {Json}", uri, JsonSerializer.Serialize(requestData, _options));
+
                 var httpRequestMessage = new HttpRequestMessage
                 {
                     Method = HttpMethod.Put,
-                    RequestUri = new Uri(_client.BaseAddress, $"swish-cpcapi/api/v2/refunds/{refundId.ToSwishId()}"),
+                    RequestUri = uri,
                     Content = new JsonContent(requestData)
                 };
 
