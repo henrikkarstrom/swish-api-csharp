@@ -27,7 +27,7 @@ namespace SwishApi
         /// <param name="payeePaymentReference">Payment reference of the payee, which is the merchant that receives the payment. This reference could be order id or similar. Allowed characters are a-z A-Z 0-9 -_.+*/ and lenght must be between 1 and 35 characters.</param>
         /// <param name="callbackUrl">URL that Swish will use to notify caller about the outcome of the Payment request. The URL has to use HTTPS. Optional, if null default Callback Uri from configuration will be used.</param>
         /// <returns>Response or error</returns>
-        Task<(LocationResponse Response, ErrorResponse Error)> PaymentRequestAsync(Guid instructionUUID, string payeeAlias, decimal amount, string message, string payeePaymentReference, Uri callbackUrl);
+        Task<(LocationResponse Response, ErrorResponse Error)> PaymentRequestAsync(Guid instructionUUID, string payeeAlias, decimal amount, string message, string payeePaymentReference, Uri callbackUrl = null);
 
         Task<(CheckPaymentRequestStatusResponse Response, ErrorResponse Error)> CheckPaymentStatusAsync(Guid paymentId, CancellationToken cancellationToken = default(CancellationToken));
 
