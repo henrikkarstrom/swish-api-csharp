@@ -167,27 +167,29 @@ namespace SwishApi
             }
         }
 
-        public async Task<(LocationResponse Response, ErrorResponse Error)> PaymentRequestAsync(Guid paymentIdentifier, string phoneNumber, decimal amount, string message, string orderId)
+        /// <inheritdoc/>
+        public async Task<(LocationResponse Response, ErrorResponse Error)> PaymentRequestAsync(Guid paymentIdentifier, string payerAlias, decimal amount, string message, string payeePaymentReference, Uri callbackUrl = null)
         {
             EnsureArg.IsGt(amount, 0, nameof(amount));
             EnsureArg.IsNotNullOrEmpty(message);
             EnsureArg.IsNotDefault(paymentIdentifier, nameof(paymentIdentifier));
-            EnsureArg.IsNotNullOrEmpty(phoneNumber, nameof(phoneNumber));
+            EnsureArg.IsNotNullOrEmpty(payerAlias, nameof(payerAlias));
+            EnsureArg.HasLengthBetween(payerAlias, 8, 15);
             EnsureArg.IsNotNullOrEmpty(message, nameof(message));
-
+            
             try
             {
                 var requestData = new PaymentRequest()
                 {
-                    payeePaymentReference = orderId,
-                    callbackUrl = _callbackUrl,
-                    payerAlias = phoneNumber,
+                    payeePaymentReference = payeePaymentReference,
+                    callbackUrl = callbackUrl ?? _callbackUrl,
+                    payerAlias = payerAlias,
                     payeeAlias = _payeeAlias,
                     amount = amount.ToSwishAmount(),
                     currency = Currency,
                     message = message
                 };
-                _logger.LogInformation("Json {Json}", JsonSerializer.Serialize(requestData, _options));
+                _logger.LogDebug("Json {Json}", JsonSerializer.Serialize(requestData, _options));
                 var httpRequestMessage = new HttpRequestMessage
                 {
                     Method = HttpMethod.Put,

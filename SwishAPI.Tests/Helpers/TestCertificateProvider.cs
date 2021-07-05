@@ -2,11 +2,11 @@
 // Copyright (c) Julius Biljettservice AB. All rights reserved.
 // -------------------------------------------------------------------------------------------------
 
+using SwishApi;
 using System;
 using System.Security.Cryptography.X509Certificates;
-using SwishApi;
 
-namespace SwishAPI.Tests
+namespace SwishAPI.Tests.Helpers
 {
     public class TestCertificateProvider : ISwishCertificateProvider
     {

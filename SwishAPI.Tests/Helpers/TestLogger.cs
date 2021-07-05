@@ -2,12 +2,12 @@
 // Copyright (c) Julius Biljettservice AB. All rights reserved.
 // -------------------------------------------------------------------------------------------------
 
+using Microsoft.Extensions.Logging;
 using System;
 using System.Text;
-using Microsoft.Extensions.Logging;
 using Xunit.Abstractions;
 
-namespace SwishAPI.Tests
+namespace SwishAPI.Tests.Helpers
 {
     internal sealed class TestLogger<T> : ILogger<T>, IDisposable
     {

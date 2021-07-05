@@ -2,22 +2,23 @@
 // Copyright (c) Julius Biljettservice AB. All rights reserved.
 // -------------------------------------------------------------------------------------------------
 
+using SwishApi;
+using SwishAPI.Tests.Helpers;
 using System;
 using System.Threading.Tasks;
-using SwishApi;
 using Xunit;
 using Xunit.Abstractions;
 
 namespace SwishAPI.Tests
 {
-    public class UnitTest1
+    public class SwishClientTests
     {
         private ITestOutputHelper _testOutputWriter;
         private TestLogger<SwishClient> _logger;
         private Random _random;
         private const string PayeeAlias = "1234679304";
 
-        public UnitTest1(ITestOutputHelper testOutputHelper)
+        public SwishClientTests(ITestOutputHelper testOutputHelper)
         {
             _testOutputWriter = testOutputHelper;
             _logger = new TestLogger<SwishClient>(testOutputHelper);
@@ -31,7 +32,7 @@ namespace SwishAPI.Tests
             var callbackUri = new Uri("https://tabetaltmedswish.se/Test/Callback/");
             var certificateProvider = new TestCertificateProvider();
 
-            var sut = new SwishApi.SwishClient(certificateProvider, callbackUri, _logger)
+            ISwishClient sut = new SwishClient(certificateProvider, callbackUri, _logger)
             {
                 UseMSS = true,
             };
